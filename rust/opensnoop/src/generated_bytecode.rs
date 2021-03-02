@@ -438,7 +438,7 @@ pub fn generate_execve_entry(instructions: &mut [libbpf::bpf_insn], progeny_pids
       code: 0x7,
       _bitfield_1: libbpf::bpf_insn::new_bitfield_1(0, 0),
       off: 0,
-      imm: 2232,
+      imm: 2256,
   };
   instructions[5] = libbpf::bpf_insn {
       code: 0xbf,
@@ -480,7 +480,7 @@ pub fn generate_execve_entry(instructions: &mut [libbpf::bpf_insn], progeny_pids
       code: 0x7,
       _bitfield_1: libbpf::bpf_insn::new_bitfield_1(3, 0),
       off: 0,
-      imm: 2220,
+      imm: 2244,
   };
   instructions[12] = libbpf::bpf_insn {
       code: 0xbf,

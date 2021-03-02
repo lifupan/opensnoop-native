@@ -508,7 +508,7 @@ void generate_execve_entry(struct bpf_insn instructions[], int progeny_pids_fd) 
       .dst_reg = BPF_REG_0,
       .src_reg = BPF_REG_0,
       .off     = 0,
-      .imm     = 2232,
+      .imm     = 2256,
   };
   instructions[5] = (struct bpf_insn) {
       .code    = 0xbf,
@@ -557,7 +557,7 @@ void generate_execve_entry(struct bpf_insn instructions[], int progeny_pids_fd) 
       .dst_reg = BPF_REG_3,
       .src_reg = BPF_REG_0,
       .off     = 0,
-      .imm     = 2220,
+      .imm     = 2244,
   };
   instructions[12] = (struct bpf_insn) {
       .code    = 0xbf,

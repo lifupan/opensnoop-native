@@ -9,89 +9,73 @@ from bcc import (
 from debug import generate_c_function
 
 # Names of the various BPF maps declared in `bpf_text_template`.
-TABLE_NAMES = ["infotmp", "events", "progeny_pids"]
+TABLE_NAMES = ["currsock"]
 
 # define BPF program
 bpf_text_template = """
 #include <uapi/linux/ptrace.h>
-#include <uapi/linux/limits.h>
-#include <linux/sched.h>
-#include "opensnoop.h"
+#include <uapi/linux/sockios.h>
+#include <uapi/linux/if.h>
+#include <uapi/linux/in.h>
+#include <linux/fs.h>
+#include <bcc/proto.h>
 
-BPF_HASH(infotmp, u64, struct val_t);
-BPF_PERF_OUTPUT(events);
+BPF_HASH(currsock, u32, unsigned long);
 
-// This is a hash map, but we use it as a set of
-// process ids that are progeny of the ancestor id.
-BPF_HASH(progeny_pids, u32, u32);
-
-int trace_entry(struct pt_regs *ctx, int dfd, const char __user *filename)
+int kprobe__sock_ioctl(struct pt_regs *ctx, struct file *file, unsigned cmd, unsigned long arg)
 {
-    struct val_t val = {};
-    u64 id = bpf_get_current_pid_tgid();
-    u32 pid = id >> 32; // PID is higher part
-    u32 tid = id;       // Cast and get the lower part
+        if (cmd != SIOCGIFCONF ) {
+            return 0;
+        }
 
-    FILTER
-    if (bpf_get_current_comm(&val.comm, sizeof(val.comm)) == 0) {
-        val.id = id;
-        val.fname = filename;
-        infotmp.update(&id, &val);
-    }
+	u32 pid = bpf_get_current_pid_tgid();
 
-    return 0;
-}
+	// stash the sock ptr for lookup on return
+	currsock.update(&pid, &arg);
 
-int trace_return(struct pt_regs *ctx)
+	return 0;
+};
+
+int kretprobe__sock_ioctl(struct pt_regs *ctx)
 {
-    u64 id = bpf_get_current_pid_tgid();
-    struct val_t *valp;
-    struct data_t data = {};
+	int ret = PT_REGS_RC(ctx);
+	u32 pid = bpf_get_current_pid_tgid();
 
-    u64 tsp = bpf_ktime_get_ns();
+        // the ip addr: 192.168.0.2
+        uint32_t addr_filter = 33597632;
 
-    valp = infotmp.lookup(&id);
-    if (valp == 0) {
-        // missed entry
-        return 0;
-    }
-    bpf_probe_read(&data.comm, sizeof(data.comm), valp->comm);
-    bpf_probe_read(&data.fname, sizeof(data.fname), (void *)valp->fname);
-    data.id = valp->id;
-    data.ts = tsp;
-    data.ret = PT_REGS_RC(ctx);
+        unsigned long *arg;
+	arg = currsock.lookup(&pid);
+	if (arg == NULL) {
+		return 0;	// missed entry
+	}
 
-    events.perf_submit(ctx, &data, sizeof(data));
-    infotmp.delete(&id);
+        struct ifconf ifc;
 
-    return 0;
-}
+        bpf_probe_read_user(&ifc, sizeof(ifc), (const void *)*arg);
 
-int execve_entry()
-{
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    u32 ppid = task->real_parent->tgid;
-    // Note this requires that we put the PID we are following
-    // in progeny_pids before we attach any of the kprobes.
-    if (progeny_pids.lookup(&ppid) != NULL) {
-        u32 pid = bpf_get_current_pid_tgid() >> 32;
-        u32 dummy_value = 1;
-        progeny_pids.update(&pid, &dummy_value);
-    }
+        struct ifreq *req = (struct ifreq *)(ifc.ifc_buf + ifc.ifc_len - sizeof(struct ifreq));
+        
+        struct sockaddr *sockaddr = &(req->ifr_addr);
+        struct sockaddr_in * sockaddrin = (struct sockaddr_in *)sockaddr;
 
-    return 0;
-}
+        uint32_t addr;
+        bpf_probe_read_user(&addr, sizeof(uint32_t), (uint32_t *)(&(sockaddrin->sin_addr).s_addr));
 
-int exit_group_entry()
-{
-    // Note this does not account for child pids getting reparented if
-    // they outlive their parent. Normally, they will get reparented to 1,
-    // though apparently there are edge cases:
-    // https://unix.stackexchange.com/questions/149319/new-parent-process-when-the-parent-process-dies
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-    progeny_pids.delete(&pid);
+        if (addr != addr_filter) {
+            return 0;
+        }
 
-    return 0;
+        ifc.ifc_len -= sizeof(struct ifreq);
+        int retn = bpf_probe_write_user((void *)*arg, &ifc, sizeof(ifc));
+
+        unsigned char * str_addr = (unsigned char *)&addr;
+	bpf_trace_printk("trace_sock_ioctl %u, %u\\n", str_addr[0], str_addr[1]);
+	bpf_trace_printk("trace_sock_ioctl %u, %u\\n", str_addr[2], str_addr[3]);
+
+	currsock.delete(&pid);
+
+	return 0;
 }
 """
 
