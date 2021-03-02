@@ -71,28 +71,20 @@ int main(int argc, char **argv) {
   // BPF_HASH
   const char *hashMapName = "hashMap name for debugging";
   hashMapFd = bcc_create_map(BPF_MAP_TYPE_HASH, hashMapName,
-                             /* key_size */ sizeof(__u64),
-                             /* value_size */ sizeof(struct val_t),
+                             /* key_size */ sizeof(__u32),
+                             /* value_size */ sizeof(__u64),
                              /* max_entries */ 10240,
                              /* map_flags */ 0);
   if (hashMapFd < 0) {
     perror("Failed to create BPF_HASH");
-    goto error;
+    return 0;
   }
 
   const char *prog_name_for_kprobe = "some kprobe";
   int numTraceEntryInstructions;
   struct bpf_insn trace_entry_insns[MAX_NUM_TRACE_ENTRY_INSTRUCTIONS];
-  if (opt_tid != -1) {
-    generate_trace_entry_tid(trace_entry_insns, opt_tid, hashMapFd);
-    numTraceEntryInstructions = NUM_TRACE_ENTRY_TID_INSTRUCTIONS;
-  } else if (opt_pid != -1) {
-    generate_trace_entry_pid(trace_entry_insns, opt_pid, hashMapFd);
-    numTraceEntryInstructions = NUM_TRACE_ENTRY_PID_INSTRUCTIONS;
-  } else {
-    generate_trace_entry(trace_entry_insns, hashMapFd);
-    numTraceEntryInstructions = NUM_TRACE_ENTRY_INSTRUCTIONS;
-  }
+  kprobe__sock_ioctl(trace_entry_insns, hashMapFd);
+  numTraceEntryInstructions = NUM_TRACE_ENTRY_INSTRUCTIONS;
 
   entryProgFd = bcc_prog_load(
       BPF_PROG_TYPE_KPROBE, prog_name_for_kprobe, trace_entry_insns,
@@ -101,37 +93,39 @@ int main(int argc, char **argv) {
       /* log_level */ 1, bpf_log_buf, LOG_BUF_SIZE);
   if (entryProgFd == -1) {
     perror("Error calling bcc_prog_load() for kprobe");
-    goto error;
+    return 0;
   }
 
-  kprobeFd = bpf_attach_kprobe(entryProgFd, BPF_PROBE_ENTRY, "p_do_sys_open",
-                               "do_sys_open",
+  //kprobeFd = bpf_attach_kprobe(entryProgFd, BPF_PROBE_ENTRY, "p_sock_ioctl",
+  kprobeFd = bpf_attach_kprobe(entryProgFd, BPF_PROBE_ENTRY, NULL,
+                               "sock_ioctl",
                                /* fn_offset */ 0, /* maxactive */ 0);
   if (kprobeFd < 0) {
     perror("Error calling bpf_attach_kprobe() for kprobe");
-    goto error;
+    return 0;
   }
 
   const char *prog_name_for_kretprobe = "some kretprobe";
-  struct bpf_insn trace_return_insns[NUM_TRACE_RETURN_INSTRUCTIONS];
-  generate_trace_return(trace_return_insns, hashMapFd, eventsMapFd);
+  struct bpf_insn trace_return_insns[NUM_EXECVE_ENTRY_INSTRUCTIONS];
+  kretprobe__sock_ioctl(trace_return_insns, hashMapFd);
 
   returnProgFd = bcc_prog_load(
       BPF_PROG_TYPE_KPROBE, prog_name_for_kretprobe, trace_return_insns,
-      /* prog_len */ NUM_TRACE_RETURN_INSTRUCTIONS * sizeof(struct bpf_insn),
+      /* prog_len */ NUM_EXECVE_ENTRY_INSTRUCTIONS * sizeof(struct bpf_insn),
       /* license */ "GPL", kern_version,
       /* log_level */ 1, bpf_log_buf, LOG_BUF_SIZE);
   if (returnProgFd == -1) {
     perror("Error calling bcc_prog_load() for kretprobe");
-    goto error;
+    return 0;
   }
 
   kretprobeFd = bpf_attach_kprobe(returnProgFd, BPF_PROBE_RETURN,
-                                  "r_do_sys_open", "do_sys_open",
+                                 // "r_sock_ioctl", "sock_ioctl",
+                                  NULL, "sock_ioctl",
                                   /* fn_offset */ 0, /* maxactive */ 0);
   if (kretprobeFd < 0) {
     perror("Error calling bpf_attach_kprobe() for kretprobe");
-    goto error;
+    return 0;
   }
 
   printHeader();

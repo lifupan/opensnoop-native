@@ -103,31 +103,10 @@ PLACEHOLDER_PID = 654321
 # Note that we cannot call gen_c() while another file is open
 # (such as generated_bytecode.h) or else it will throw off the
 # file descriptor numbers in the generated code.
-c_entry, rust_entry, entry_size, = gen_c("generate_trace_entry", "trace_entry")
+c_entry, rust_entry, entry_size, = gen_c("kprobe__sock_ioctl", "kprobe__sock_ioctl")
 c_execve_entry, rust_execve_entry, execve_entry_size, = gen_c(
-    "generate_execve_entry", "execve_entry"
+    "kretprobe__sock_ioctl", "kretprobe__sock_ioctl"
 )
-c_exit_group_entry, rust_exit_group_entry, exit_group_entry_size, = gen_c(
-    "generate_exit_group_entry", "exit_group_entry"
-)
-c_entry_progeny, rust_entry_progeny, entry_progeny_size = gen_c(
-    "generate_trace_entry_progeny",
-    "trace_entry",
-    filter_value="if (progeny_pids.lookup(&pid) == NULL) { return 0; }",
-)
-c_entry_tid, rust_entry_tid, entry_tid_size = gen_c(
-    "generate_trace_entry_tid",
-    "trace_entry",
-    filter_value="if (tid != %d) { return 0; }" % PLACEHOLDER_TID,
-    placeholder={"param_type": "int", "param_name": "tid", "imm": PLACEHOLDER_TID},
-)
-c_entry_pid, rust_entry_pid, entry_pid_size = gen_c(
-    "generate_trace_entry_pid",
-    "trace_entry",
-    filter_value="if (pid != %d) { return 0; }" % PLACEHOLDER_PID,
-    placeholder={"param_type": "int", "param_name": "pid", "imm": PLACEHOLDER_PID},
-)
-c_ret, rust_ret, ret_size = gen_c("generate_trace_return", "trace_return")
 
 c_file = (
     (
@@ -139,77 +118,20 @@ c_file = (
 #define MAX_NUM_TRACE_ENTRY_INSTRUCTIONS %d
 #define NUM_TRACE_ENTRY_INSTRUCTIONS %d
 
-#define NUM_TRACE_ENTRY_PROGENY_INSTRUCTIONS %d
 #define NUM_EXECVE_ENTRY_INSTRUCTIONS %d
-#define NUM_EXIT_GROUP_ENTRY_INSTRUCTIONS %d
-
-#define NUM_TRACE_ENTRY_TID_INSTRUCTIONS %d
-#define NUM_TRACE_ENTRY_PID_INSTRUCTIONS %d
-#define NUM_TRACE_RETURN_INSTRUCTIONS %d
 
 """
         % (
-            max(entry_size, entry_progeny_size, entry_tid_size, entry_pid_size),
+            max(entry_size, execve_entry_size),
             entry_size,
-            entry_progeny_size,
             execve_entry_size,
-            exit_group_entry_size,
-            entry_tid_size,
-            entry_pid_size,
-            ret_size,
         )
     )
     + c_entry
-    + c_entry_progeny
     + c_execve_entry
-    + c_exit_group_entry
-    + c_entry_tid
-    + c_entry_pid
-    + c_ret
 )
 
 __dir = os.path.dirname(os.path.realpath(__file__))
 with open(os.path.join(__dir, "generated_bytecode.h"), "w") as f:
     f.write(c_file)
 
-rust_file = (
-    (
-        """\
-// GENERATED FILE: See opensnoop.py.
-extern crate libbpf;
-
-use libbpf::BpfMap;
-
-pub const MAX_NUM_TRACE_ENTRY_INSTRUCTIONS: usize = %d;
-pub const NUM_TRACE_ENTRY_INSTRUCTIONS: usize = %d;
-
-pub const NUM_TRACE_ENTRY_PROGENY_INSTRUCTIONS: usize = %d;
-pub const NUM_EXECVE_ENTRY_INSTRUCTIONS: usize = %d;
-pub const NUM_EXIT_GROUP_ENTRY_INSTRUCTIONS: usize = %d;
-
-pub const NUM_TRACE_ENTRY_TID_INSTRUCTIONS: usize = %d;
-pub const NUM_TRACE_ENTRY_PID_INSTRUCTIONS: usize = %d;
-pub const NUM_TRACE_RETURN_INSTRUCTIONS: usize = %d;
-"""
-        % (
-            max(entry_size, entry_progeny_size, entry_tid_size, entry_pid_size),
-            entry_size,
-            entry_progeny_size,
-            execve_entry_size,
-            exit_group_entry_size,
-            entry_tid_size,
-            entry_pid_size,
-            ret_size,
-        )
-    )
-    + rust_entry
-    + rust_entry_progeny
-    + rust_execve_entry
-    + rust_exit_group_entry
-    + rust_entry_tid
-    + rust_entry_pid
-    + rust_ret
-)
-
-with open(os.path.join(__dir, "rust/opensnoop/src/generated_bytecode.rs"), "w") as f:
-    f.write(rust_file)
