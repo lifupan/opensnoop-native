@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
-#include <linux/version.h>
+//#include <linux/version.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +14,10 @@
 #include <unistd.h>
 
 char bpf_log_buf[LOG_BUF_SIZE];
+
+
+// kangroo2 linux kernel version code
+#define LINUX_VERSION_CODE 267099
 
 /**
  * If a positive integer is parsed successfully, returns the value.
@@ -34,9 +38,7 @@ int parseNonNegativeInteger(const char *str) {
 
 int opt_timestamp = 0;
 int opt_failed = 0;
-int opt_pid = -1;
 int opt_tid = -1;
-int opt_duration = -1;
 char *opt_name = NULL;
 
 void printHeader() {
